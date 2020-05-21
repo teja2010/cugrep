@@ -138,13 +138,16 @@ void start_kernels(struct config *c)
 	//print the line if found is true
 	thrust::host_vector<bool> h_found = d_found;
 
+	//int count = 0;
 	printf("Search Results:\n");
 	for(int i=0; i<h_found.size(); i++) {
 		if (h_found[i] == false)
 			continue;
 
 		printf("%s\n", &c->read_buf[h_offsets[i]]);
+		//count++;
 	}
+	//printf("%d\n", count);
 }
 
 int main(int argc, char *argv[])
