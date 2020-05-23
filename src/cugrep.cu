@@ -24,10 +24,14 @@ struct config* read_config(int argc, char* argv[])
 		exit(1);
 	}
 
+	int pattern_len = strlen(argv[0]);
+
 	struct config *c = (struct config *)calloc(1, sizeof(struct config));
-	c->pattern = (char*)calloc(strlen(argv[0]), sizeof(char));
-	memcpy(c->pattern, argv[0], strlen(argv[0]));
+	c->pattern = (char*)calloc(pattern_len, sizeof(char));
+	memcpy(c->pattern, argv[0], pattern_len);
 	printf("pattern %s\n", c->pattern);
+
+	build_nfa(c->pattern, pattern_len, &c->nfa);
 
 	c->filename = (char*)calloc(strlen(argv[1]), sizeof(char));
 	memcpy(c->filename, argv[1], strlen(argv[1]));
@@ -62,7 +66,7 @@ struct config* read_config(int argc, char* argv[])
 
 void build_metadata(struct config *c)
 {
-	c->nfa = (struct NFA*) calloc(1, sizeof(struct NFA));
+	//c->nfa = (struct NFA*) calloc(1, sizeof(struct NFA));
 	//TODO read the regex and build the NFA.
 }
 
@@ -87,14 +91,24 @@ void build_metadata(struct config *c)
 //	*myOffsets_num = ctr;
 //}
 
-__global__ void match_lines(char *block, int size, int *offsets, bool *found)
+__global__ void match_lines(char *block, int filesize, int size, int *offsets, bool *found)
 {
 	int idx = blockIdx.x * blockDim.x + threadIdx.x;
 	if (idx >= size) {
 		return;
 	}
 
+	//// pattern = ^s
 	found[idx] = (block[offsets[idx]] == 's');
+	
+	//// pattern = s
+	//int start = offsets[idx];
+	//bool  ff = false;
+	//while(!ff && start < filesize && block[start] != '\0') {
+	//	ff = ff || (block[start] == 's');
+	//	start++;
+	//}
+	//found[idx] = ff;
 
 	//printf("[%d]: %s\n", idx, block+offsets[idx]);
 }
@@ -130,9 +144,11 @@ void start_kernels(struct config *c)
 
 	dim3 threads = dim3(THREADS_NUM, 1);
 	dim3 blocks = dim3((h_offsets.size()-1)/THREADS_NUM+1, 1);
-	match_lines<<<blocks, threads>>>(d_read_buf, d_offsets.size(),
-			thrust::raw_pointer_cast(&d_offsets[0]),
-			thrust::raw_pointer_cast(&d_found[0]));
+	match_lines<<<blocks, threads>>>(d_read_buf,
+					 c->file_size,
+					 d_offsets.size(),
+					 thrust::raw_pointer_cast(&d_offsets[0]),
+					 thrust::raw_pointer_cast(&d_found[0]));
 	// wait for all kernels to complete
 
 	//print the line if found is true
