@@ -28,7 +28,7 @@ struct config {
 //	int size, capacity, element_size;
 //}
 
-int build_nfa(char *regex, int regex_len, uint32_t **nfa_blk_p);
-bool match();
+int build_nfa(char *regex, int regex_len, uint8_t **nfa_blk_p);
+bool match(uint8_t *nfa, int nfa_len, char* str, int slen);
 
 #endif //__CUGREP_COMMON_H
