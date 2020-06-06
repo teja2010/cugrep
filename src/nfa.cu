@@ -20,27 +20,6 @@
 //		};
 //	};
 //};
-#define NFA_CURR_STATE(b32, idx) (b32[4*(idx)])
-#define NFA_MATCH_CHAR(b32, idx) (b32[4*(idx) +2])
-#define NFA_NEXT_STATE(b32, idx) (b32[4*(idx) +1])
-
-#ifdef NFA_TESTING
-#define NFA_SET(b32, idx, cs, mc, ns)					\
-	do {								\
-		b32[4*(idx)]   = cs & 0xff;				\
-		b32[4*(idx)+2] = mc & 0xff;				\
-		b32[4*(idx)+1] = ns & 0xff;				\
-		printf("SET @%d: %d, %c -> %x\n", idx, cs, mc, ns);	\
-	}while(0);
-
-#else //NFA_TESTING
-#define NFA_SET(b32, idx, cs, mc, ns)					\
-	do {								\
-		b32[4*idx] = cs & 0xff; 				\
-		b32[4*idx+2] = mc & 0xff;				\
-		b32[4*idx+1] = ns & 0xff;				\
-	} while(0);
-#endif //NFA_TESTING
 
 
 /* NFA (non-deterministic finite automata) to represent a limited regex expression.
@@ -61,7 +40,11 @@ int build_nfa(char *regex, int regex_len, uint8_t **nfa_blk_p) {
 #ifdef NFA_TESTING
 	nfa_blk = (uint8_t*)calloc(400, sizeof(uint8_t));
 #else
-	checkCudaErrors(cudaMallocHost(&nfa_blk, 400*sizeof(uint8_t)));
+	cudaError_t err = cudaMallocHost(&nfa_blk, 400*sizeof(uint8_t));
+	if (err != cudaSuccess) {
+		fprintf(stderr, "Failed to allocate nfa: %s", cudaGetErrorString(err));
+		return -1;
+	}
 #endif
 	*nfa_blk_p = nfa_blk;
 
@@ -160,60 +143,115 @@ int build_nfa(char *regex, int regex_len, uint8_t **nfa_blk_p) {
 			}
 		}
 
-		printf("bb : %lx\n", bb);
+		//printf("bb : %lx\n", bb);
 		temp_nfa.push_back(bb);
 	}
 	std::sort(temp_nfa.begin(), temp_nfa.end());
 
 	for(uint i =0; i < temp_nfa.size(); i++) {
 		uint32_t tn = temp_nfa[i];
-		printf("tn : %lx\n", tn);
+		//printf("tn : %lx\n", tn);
 		NFA_SET(nfa_blk, i, (tn >> 16) & 0xff ,
 		                    (tn) & 0xff , (tn >> 8) & 0xff);
 	}
 
-#ifdef NFA_TESTING
 	printf("NFA_BLK:\n");
-#endif
 	for(uint i =0; i < temp_nfa.size(); i++) {
-#ifdef NFA_TESTING
 		printf(": %d %c %d\n",  NFA_CURR_STATE(nfa_blk, i),
 					NFA_MATCH_CHAR(nfa_blk, i),
 					NFA_NEXT_STATE(nfa_blk, i));
-#endif
 	}
 
 	return nfa_idx;
 }
 
+// the function logic that will be used to match lines in the kernel.
 bool match(uint8_t *nfa, int nfa_len, char* str, int slen)
 {
+	int thread_idx = 0;
+
 	int idx = 0;
 	int nfa_idx = 0;
 	int state = 0;
+	bool reset = true;
 
-	while(idx < slen) {
+
+	while(str[idx] !='\0') {
+		reset = true;
 		for(int i=nfa_idx; i< nfa_len; i++) {
 			if(NFA_CURR_STATE(nfa, i) != state)
 				break;
 
+#ifdef NFA_TESTING
+			printf("%d: %d =?= %d\n", i, state, NFA_CURR_STATE(nfa, i));
+			printf("%d: %c =?= %c\n", i, str[idx], NFA_MATCH_CHAR(nfa, i));
+#endif
 			if(NFA_MATCH_CHAR(nfa, i) == str[idx] ) {
 				state = NFA_NEXT_STATE(nfa, i);
+#ifdef NFA_TESTING
+				printf("%c -> next %d\n", str[idx], state);
+#endif
+				reset = false;
 				break;
 			}
+		}
 
+		// nothing matched, reset state
+		if (reset) {
+#ifdef NFA_TESTING
+			printf("reset:%c\n", str[idx]);
+#endif
+			idx = idx - state;
+			state = 0;
+			nfa_idx = 0;
 		}
 
 		if (state == 0xff) {
+#ifdef NFA_TESTING
+			printf("thread_idx: match %d\n", thread_idx);
+#endif
 			return true;
 		}
 
-		while(NFA_CURR_STATE(nfa, nfa_idx) < state) {
+		while(nfa_idx < nfa_len && NFA_CURR_STATE(nfa, nfa_idx) < state) {
 			nfa_idx++;
 		}
 
 		idx++;
 	}
 
+#ifdef NFA_TESTING
+	printf("thread_idx: no match %d\n", thread_idx);
+#endif
 	return false;
+//	while(idx < slen && str[idx]!='\0') {
+//		reset = true;
+//		for(int i=nfa_idx; i< nfa_len; i++) {
+//			if(NFA_CURR_STATE(nfa, i) != state)
+//				break;
+//
+//			if(NFA_MATCH_CHAR(nfa, i) == str[idx] ) {
+//				state = NFA_NEXT_STATE(nfa, i);
+//				reset = false;
+//				break;
+//			}
+//		}
+//
+//		if (reset) {
+//			state = 0;
+//			nfa_idx = 0;
+//		}
+//
+//		if (state == 0xff) {
+//			return true;
+//		}
+//
+//		while(NFA_CURR_STATE(nfa, nfa_idx) < state) {
+//			nfa_idx++;
+//		}
+//
+//		idx++;
+//	}
+//
+//	return false;
 }
