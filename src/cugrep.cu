@@ -126,21 +126,6 @@ __global__ void fill_offsets(char *block, int block_size,
 
 }
 
-// some test code to match:
-	//// pattern = ^s
-	//found[idx] = (block[offsets[idx]] == 's');
-	
-	//// pattern = s
-	//int start = offsets[idx];
-	//bool  ff = false;
-	//while(!ff && start < filesize && block[start] != '\0') {
-	//	ff = ff || (block[start] == 's');
-	//	start++;
-	//}
-	//found[idx] = ff;
-
-	//printf("[%d]: %s\n", idx, block+offsets[idx]);
-
 __global__ void match_lines(char *block, int filesize, int size, int *offsets,
 			    bool *found, uint8_t *nfa, int nfa_len)
 {
@@ -248,15 +233,13 @@ void find_line_simple(struct config *c, std::vector<int> &h_offsets)
 	//printf("\n");
 }
 
-//void print_matches(struct config *c, bool *h_found, int *h_offsets, int h_found_size)
-void print_matches(struct config *c, bool *h_found,
-			thrust::host_vector<int> h_offsets, int h_found_size)
+//void print_matches(struct config *c, bool *h_found,
+//			thrust::host_vector<int> h_offsets, int h_found_size)
+void print_matches(struct config *c, bool *h_found, int *h_offsets, int h_found_size)
 {
 	c->read_buf[c->file_size-1] = '\0';
 
-	//int count = 0;
 	printf("Search Results:\n");
-	//flockfile(stdout);
 	for(int i=0; i<h_found_size; i++) {
 
 		//printf("%s: %s\n", h_found[i] ? "T :" : "F :",
@@ -268,16 +251,9 @@ void print_matches(struct config *c, bool *h_found,
 		if(i+1 < h_found_size)
 			c->read_buf[h_offsets[i+1]-1] = '\0';
 
-		//printf("%s\n", &c->read_buf[h_offsets[i]]);
 		puts(&c->read_buf[h_offsets[i]]);
 
-		//fputc('\n', stdout);
-		//fputs_unlocked(&c->read_buf[h_offsets[i]], stdout);
-		//fputc_unlocked('\n', stdout);
-		//count++;
 	}
-	//funlockfile(stdout);
-	//printf("%d\n", count);
 }
 
 
@@ -378,7 +354,6 @@ void start_kernels(struct config *c)
 
 	printf("Print found\n");
 	//print the line if found is true
-	//thrust::host_vector<bool> h_found = d_found;
 
 	bool *h_found;
 	cuErr(cudaMallocHost(&h_found, h_off_size*sizeof(bool)),
@@ -387,14 +362,11 @@ void start_kernels(struct config *c)
 				cudaMemcpyDeviceToHost),
 			"Memcpy h_found");
 
-	//int *h_offsets = NULL;
-	//cuErr(cudaMallocHost(&h_offsets, h_off_size*sizeof(bool)),
-	//		"Alloc h_offsets");
-	//cuErr(cudaMemcpy(h_offsets, thrust::raw_pointer_cast(&d_offsets[0]),
-	//			h_off_size*sizeof(int),
-	//			cudaMemcpyDeviceToHost),
-	//		"Memcpy h_offsets");
-	thrust::host_vector<int> h_offsets = d_offsets;
+	int *h_offsets = (int*)calloc(h_off_size, sizeof(int));
+	int *d_off_p = thrust::raw_pointer_cast(&d_offsets[0]);
+	cuErr(cudaMemcpy(h_offsets, d_off_p, h_off_size*sizeof(int),
+				cudaMemcpyDeviceToHost),
+			"Memcpy h_offsets");
 
 	print_matches(c, h_found, h_offsets, h_off_size);
 }
