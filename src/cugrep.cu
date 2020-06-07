@@ -32,6 +32,8 @@ struct config* read_config(int argc, char* argv[])
 	memcpy(c->pattern, argv[0], pattern_len);
 	printf("pattern %s\n", c->pattern);
 
+	c->pattern_len = pattern_len;
+
 	c->nfa_len = build_nfa(c->pattern, pattern_len, &c->nfa);
 	if (c->nfa_len < 0) {
 		printf("build_nfa failed\n");
@@ -65,7 +67,6 @@ struct config* read_config(int argc, char* argv[])
 	}
 	c->file_offset = 0;
 
-	c->offset = 0;
 	check_config(c);
 	return c;
 }
@@ -328,18 +329,19 @@ void start_kernels(struct config *c)
 	find_line_offsets(d_read_buf, c, d_offsets, &h_off_size);
 
 
-	uint8_t *d_nfa_blk;
-	cuErr(cudaMalloc(&d_nfa_blk, c->nfa_len*sizeof(uint32_t)),
-			"Alloc d_nfa");
-	cuErr(cudaMemcpy(d_nfa_blk, c->nfa, c->nfa_len*sizeof(uint32_t),
-				cudaMemcpyHostToDevice),
-			"Mempcy d_nfa");
 
 	bool *d_found;
 	cuErr(cudaMalloc(&d_found, h_off_size*sizeof(bool)),
 			"Alloc d_found");
 
 	printf("Start kernel\n");
+
+	uint8_t *d_nfa_blk;
+	cuErr(cudaMalloc(&d_nfa_blk, c->nfa_len*sizeof(uint32_t)),
+			"Alloc d_nfa");
+	cuErr(cudaMemcpy(d_nfa_blk, c->nfa, c->nfa_len*sizeof(uint32_t),
+				cudaMemcpyHostToDevice),
+			"Mempcy d_nfa");
 
 	dim3 threads = dim3(THREADS_NUM, 1);
 	dim3 blocks = dim3((h_off_size-1)/THREADS_NUM+1, 1);
@@ -386,6 +388,7 @@ int main(int argc, char *argv[])
 	}
 
 	start_kernels(c);
+	fflush(stdout);
 }
 
 

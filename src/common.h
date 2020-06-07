@@ -5,16 +5,17 @@
 
 struct config {
 	char *pattern, *filename;
+	int pattern_len;
 	int fd;
 
 	char *read_buf;
 	long file_offset;
 	long file_size;
-	//struct NFA* nfa;
+	
+	//NFA
 	uint8_t *nfa;
 	int nfa_len;
-	int *file_metadata; // offsets to read each line.
-	int offset;
+
 };
 #define READ_BUF_SIZE 2000
 
