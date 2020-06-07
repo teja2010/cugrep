@@ -70,26 +70,62 @@ struct config* read_config(int argc, char* argv[])
 	return c;
 }
 
-//#define OFFSET_SEARCH_LEN 10 /* length of blocks where we search for newline */
-//__global__ void find_line_offsets(char *block, int block_size, int *offsets, int *offsets_num)
-//{
-//	int idx = blockIdx.x * blockDim.x + threadIdx.x;
-//	if (idx > block_size)
-//		return;
-//
-//	char *myBlock = block + idx;
-//	int *myOffsets = offsets + idx;
-//	int *myOffsets_num = offsets_num + idx;
-//
-//	int ctr = 0;
-//	for(int i=0; i<OFFSET_SEARCH_LEN; i++) {
-//		if(myBlock[i] == '\n') {
-//			myOffsets[ctr] = idx+i;
-//			ctr++;
-//		}
-//	}
-//	*myOffsets_num = ctr;
-//}
+#define OFFSET_SEARCH_LEN 64
+__global__ void find_line_num_offsets(char *block, int block_size, int *num_offsets)
+{
+	int idx = blockIdx.x * blockDim.x + threadIdx.x;
+	int blkidx = idx * OFFSET_SEARCH_LEN;
+	if (blkidx > block_size)
+		return;
+
+	char *myBlock = block + blkidx;
+
+	int ctr = 0;
+	for(int i=0; i<OFFSET_SEARCH_LEN; i++) {
+		if(myBlock[i] == '\n') {
+			ctr++;
+		}
+	}
+	num_offsets[idx] = ctr;
+}
+
+__global__ void fill_offsets(char *block, int block_size,
+			     int *offset, int off_size,
+			     int *global_ctr)
+{
+	int idx = blockIdx.x * blockDim.x + threadIdx.x;
+	int blkidx = idx * OFFSET_SEARCH_LEN;
+	if (blkidx == block_size)
+		block[block_size-1] = '\0';
+
+	if (blkidx >= block_size)
+		return;
+
+	char *myBlock = block + blkidx;
+	int local_off[OFFSET_SEARCH_LEN];
+	int ctr = 0;
+
+	for(int i=0; i<OFFSET_SEARCH_LEN; i++) {
+		if(myBlock[i] == '\n') {
+			myBlock[i] = '\0';
+			local_off[ctr] = blkidx+i+1;
+#ifdef CUDA_TESTING
+			printf("fill_offsets add: %d\n", blkidx+i+1);
+#endif
+			ctr++;
+		}
+	}
+
+	if (ctr ==0)
+		return;
+
+	int offidx = atomicAdd(global_ctr, ctr);
+	for(int i=0; i<ctr; i++) {
+		offset[offidx+i] = local_off[i];
+	}
+
+}
+
 // some test code to match:
 	//// pattern = ^s
 	//found[idx] = (block[offsets[idx]] == 's');
@@ -124,7 +160,8 @@ __global__ void match_lines(char *block, int filesize, int size, int *offsets,
 	//	return;
 
 #ifdef CUDA_TESTING
-	printf("thread_idx2: %d, str %s\n", thread_idx, str);
+	printf("thread_idx2: %d, offset %d, str:%s\n", thread_idx,
+			offsets[thread_idx], str);
 	printf("NFA_BLK:\n");
 	for(uint i =0; i < nfa_len; i++) {
 		printf(": %d %c %d\n",  NFA_CURR_STATE(nfa, i),
@@ -185,13 +222,16 @@ __global__ void match_lines(char *block, int filesize, int size, int *offsets,
 	return;
 }
 
-// the main loop where for each section of the file:
-//	1. find line endings. populate offsets
-//	2. start the kernel sharing the block and offsets.
-//	3. print the results
-void start_kernels(struct config *c)
+void cuErr(cudaError_t cerr, std::string err) {
+	if (cerr != cudaSuccess) {
+		fprintf(stderr, "%s Failed: %s", err.c_str(),
+				cudaGetErrorString(cerr));
+		exit(1);
+	}
+}
+
+void find_line_simple(struct config *c, std::vector<int> &h_offsets)
 {
-	std::vector<int> h_offsets;
 	int len = 0;
 	int prev = 0;
 	for(int i=0; i<c->file_size; i++) {
@@ -206,68 +246,27 @@ void start_kernels(struct config *c)
 	}
 	c->read_buf[c->file_size-1] = '\0';
 	//printf("\n");
-	cudaError_t err;
+}
 
-	char *d_read_buf;
-	err = cudaMalloc(&d_read_buf, c->file_size*sizeof(char));
-	if (err != cudaSuccess) {
-		fprintf(stderr, "Failed to allocate readbuf: %s\n",
-				cudaGetErrorString(err));
-		exit(1);
-	}
-	err = cudaMemcpy(d_read_buf, c->read_buf, c->file_size*sizeof(char), cudaMemcpyHostToDevice);
-	if (err != cudaSuccess) {
-		fprintf(stderr, "Failed to memcpy readbuf: %s\n",
-				cudaGetErrorString(err));
-		exit(1);
-	}
-
-	uint8_t *d_nfa_blk;
-	err = cudaMalloc(&d_nfa_blk, c->nfa_len*sizeof(uint32_t));
-	if (err != cudaSuccess) {
-		fprintf(stderr, "Failed to alloc d_nfa: %s\n",
-				cudaGetErrorString(err));
-		exit(1);
-	}
-	err = cudaMemcpy(d_nfa_blk, c->nfa, c->nfa_len*sizeof(uint32_t), cudaMemcpyHostToDevice);
-	if (err != cudaSuccess) {
-		fprintf(stderr, "Failed to memcpy d_nfa: %s\n",
-				cudaGetErrorString(err));
-		exit(1);
-	}
-
-	thrust::device_vector<int> d_offsets(h_offsets.begin(), h_offsets.end());
-	thrust::device_vector<bool> d_found(h_offsets.size());
-
-	printf("Start kernel\n");
-
-	dim3 threads = dim3(THREADS_NUM, 1);
-	dim3 blocks = dim3((h_offsets.size()-1)/THREADS_NUM+1, 1);
-	match_lines<<<blocks, threads>>>(d_read_buf,
-					 c->file_size,
-					 d_offsets.size(),
-					 thrust::raw_pointer_cast(&d_offsets[0]),
-					 thrust::raw_pointer_cast(&d_found[0]),
-					 d_nfa_blk,
-					 c->nfa_len);
-	// wait for all kernels to complete
-
-	printf("Print found\n");
-	//print the line if found is true
-	thrust::host_vector<bool> h_found = d_found;
-
-//	print_matches(h_found.data(),
-//		      h_offsets.data(),
-//		      h_found.size(),
-//		      c->read_buf);
-
+//void print_matches(struct config *c, bool *h_found, int *h_offsets, int h_found_size)
+void print_matches(struct config *c, bool *h_found,
+			thrust::host_vector<int> h_offsets, int h_found_size)
+{
+	c->read_buf[c->file_size-1] = '\0';
 
 	//int count = 0;
 	printf("Search Results:\n");
 	//flockfile(stdout);
-	for(int i=0; i<h_found.size(); i++) {
+	for(int i=0; i<h_found_size; i++) {
+
+		//printf("%s: %s\n", h_found[i] ? "T :" : "F :",
+		//		&c->read_buf[h_offsets[i]]);
+
 		if (h_found[i] == false)
 			continue;
+
+		if(i+1 < h_found_size)
+			c->read_buf[h_offsets[i+1]-1] = '\0';
 
 		//printf("%s\n", &c->read_buf[h_offsets[i]]);
 		puts(&c->read_buf[h_offsets[i]]);
@@ -279,6 +278,125 @@ void start_kernels(struct config *c)
 	}
 	//funlockfile(stdout);
 	//printf("%d\n", count);
+}
+
+
+void find_line_offsets(char *d_read_buf, struct config *c,
+		  thrust::device_vector<int> &d_offsets,
+		  int *off_size_p)
+{
+	int num_off_size = (c->file_size -1)/OFFSET_SEARCH_LEN+1;
+	thrust::device_vector<int> d_num_offsets(num_off_size);
+
+	dim3 threads = dim3(THREADS_NUM, 1);
+	dim3 blocks = dim3((num_off_size -1)/THREADS_NUM+1, 1);
+	find_line_num_offsets<<<blocks, threads>>>(
+			d_read_buf,
+			c->file_size,
+			thrust::raw_pointer_cast(&d_num_offsets[0])
+			);
+	
+	int off_size = thrust::reduce(d_num_offsets.begin(),
+					d_num_offsets.end(), 0,
+					thrust::plus<int>());
+	*off_size_p = off_size;
+	d_offsets.resize(off_size);
+	
+	int *global_ctr;
+	cuErr(cudaMalloc(&global_ctr, sizeof(int)),
+			"Alloc global_ctr");
+
+	// start another kernel to fill h_offsets
+	fill_offsets<<<blocks, threads>>>(
+			d_read_buf,
+			c->file_size,
+			thrust::raw_pointer_cast(&d_offsets[0]),
+			off_size,
+			global_ctr
+			);
+
+	int h_global_ctr;
+	cuErr(cudaMemcpy(&h_global_ctr, global_ctr, sizeof(int),
+					cudaMemcpyDeviceToHost),
+			"Memcpy h_global_ctr");
+
+	if (h_global_ctr != off_size) {
+		printf("Error h_global_ctr %d != h_off_size %d\n",
+				h_global_ctr, off_size);
+		exit(1);
+	} else {
+		printf("Success h_global_ctr %d == h_off_size %d\n",
+				h_global_ctr, off_size);
+	}
+
+	// sort h_offsets
+	thrust::sort(d_offsets.begin(), d_offsets.end());
+}
+
+// the main loop where for each section of the file:
+//	1. find line endings. populate offsets
+//	2. start the kernel sharing the block and offsets.
+//	3. print the results
+void start_kernels(struct config *c)
+{
+	char *d_read_buf;
+	cuErr(cudaMalloc(&d_read_buf, c->file_size*sizeof(char)),
+			"Allocate Readbuf");
+	cuErr(cudaMemcpy(d_read_buf, c->read_buf, c->file_size*sizeof(char),
+					cudaMemcpyHostToDevice),
+			"Memcpy Readbuf");
+
+
+	int h_off_size = 0;
+	thrust::device_vector<int> d_offsets;
+	find_line_offsets(d_read_buf, c, d_offsets, &h_off_size);
+
+
+	uint8_t *d_nfa_blk;
+	cuErr(cudaMalloc(&d_nfa_blk, c->nfa_len*sizeof(uint32_t)),
+			"Alloc d_nfa");
+	cuErr(cudaMemcpy(d_nfa_blk, c->nfa, c->nfa_len*sizeof(uint32_t),
+				cudaMemcpyHostToDevice),
+			"Mempcy d_nfa");
+
+	bool *d_found;
+	cuErr(cudaMalloc(&d_found, h_off_size*sizeof(bool)),
+			"Alloc d_found");
+
+	printf("Start kernel\n");
+
+	dim3 threads = dim3(THREADS_NUM, 1);
+	dim3 blocks = dim3((h_off_size-1)/THREADS_NUM+1, 1);
+	match_lines<<<blocks, threads>>>(d_read_buf,
+					 c->file_size,
+					 h_off_size,
+					 thrust::raw_pointer_cast(&d_offsets[0]),
+					 d_found,
+					 d_nfa_blk,
+					 c->nfa_len);
+	// wait for all kernels to complete
+
+	printf("Print found\n");
+	//print the line if found is true
+	//thrust::host_vector<bool> h_found = d_found;
+
+	bool *h_found;
+	cuErr(cudaMallocHost(&h_found, h_off_size*sizeof(bool)),
+			"Alloc h_found");
+	cuErr(cudaMemcpy(h_found, d_found, h_off_size*sizeof(bool),
+				cudaMemcpyDeviceToHost),
+			"Memcpy h_found");
+
+	//int *h_offsets = NULL;
+	//cuErr(cudaMallocHost(&h_offsets, h_off_size*sizeof(bool)),
+	//		"Alloc h_offsets");
+	//cuErr(cudaMemcpy(h_offsets, thrust::raw_pointer_cast(&d_offsets[0]),
+	//			h_off_size*sizeof(int),
+	//			cudaMemcpyDeviceToHost),
+	//		"Memcpy h_offsets");
+	thrust::host_vector<int> h_offsets = d_offsets;
+
+	print_matches(c, h_found, h_offsets, h_off_size);
 }
 
 int main(int argc, char *argv[])
