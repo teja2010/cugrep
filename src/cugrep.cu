@@ -120,11 +120,19 @@ __global__ void fill_offsets(char *block, int block_size,
 
 }
 
-__global__ void match_lines(char *block, int filesize, int size, int *offsets,
-			    bool *found, uint8_t *nfa, int nfa_len)
+__global__ void match_lines(char *block, int filesize, int off_size, int *offsets,
+			    bool *found, uint8_t *g_nfa, int nfa_len)
 {
+	extern __shared__ uint8_t nfa[];
 	int thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
-	if (thread_idx >= size) {
+
+	for(int i=threadIdx.x; i<sizeof(uint32_t)*nfa_len; i+= blockDim.x) {
+		nfa[i]=g_nfa[i];
+	}
+
+	__syncthreads();
+
+	if (thread_idx >= off_size) {
 		return;
 	}
 
@@ -299,7 +307,8 @@ void start_kernels(struct config *c)
 
 	dim3 threads = dim3(THREADS_NUM, 1);
 	dim3 blocks = dim3((h_off_size-1)/THREADS_NUM+1, 1);
-	match_lines<<<blocks, threads>>>(d_read_buf,
+	match_lines<<<blocks, threads, c->nfa_len*sizeof(uint32_t)>>>(
+					 d_read_buf,
 					 c->file_size,
 					 h_off_size,
 					 thrust::raw_pointer_cast(&d_offsets[0]),
