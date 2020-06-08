@@ -30,7 +30,6 @@ struct config* read_config(int argc, char* argv[])
 	struct config *c = (struct config *)calloc(1, sizeof(struct config));
 	c->pattern = (char*)calloc(pattern_len, sizeof(char));
 	memcpy(c->pattern, argv[0], pattern_len);
-	printf("pattern %s\n", c->pattern);
 
 	c->pattern_len = pattern_len;
 
@@ -38,12 +37,10 @@ struct config* read_config(int argc, char* argv[])
 	if (c->nfa_len < 0) {
 		printf("build_nfa failed\n");
 		exit(1);
-	} else
-		printf("build_nfa done %x\n", c->nfa);
+	}
 
 	c->filename = (char*)calloc(strlen(argv[1]), sizeof(char));
 	memcpy(c->filename, argv[1], strlen(argv[1]));
-	printf("filename %s\n", c->filename);
 
 	c->fd = open(c->filename, O_RDONLY);
 	if (c->fd == -1) {
@@ -57,7 +54,6 @@ struct config* read_config(int argc, char* argv[])
 		exit(1);
 	}
 	c->file_size = sb.st_size;
-	printf("Opened %s, size %d\n", c->filename, c->file_size);
 
 	c->read_buf = (char*) mmap(NULL, c->file_size, PROT_READ|PROT_WRITE, MAP_PRIVATE,
 				   c->fd, 0);
@@ -110,9 +106,6 @@ __global__ void fill_offsets(char *block, int block_size,
 		if(myBlock[i] == '\n') {
 			myBlock[i] = '\0';
 			local_off[ctr] = blkidx+i+1;
-#ifdef CUDA_TESTING
-			printf("fill_offsets add: %d\n", blkidx+i+1);
-#endif
 			ctr++;
 		}
 	}
@@ -145,32 +138,14 @@ __global__ void match_lines(char *block, int filesize, int size, int *offsets,
 	//if(str[0] == '#') // FIXME remove this
 	//	return;
 
-#ifdef CUDA_TESTING
-	printf("thread_idx2: %d, offset %d, str:%s\n", thread_idx,
-			offsets[thread_idx], str);
-	printf("NFA_BLK:\n");
-	for(uint i =0; i < nfa_len; i++) {
-		printf(": %d %c %d\n",  NFA_CURR_STATE(nfa, i),
-					NFA_MATCH_CHAR(nfa, i),
-					NFA_NEXT_STATE(nfa, i));
-	}
-#endif
-
 	while(str[idx] !='\0') {
 		reset = true;
 		for(int i=nfa_idx; i< nfa_len; i++) {
 			if(NFA_CURR_STATE(nfa, i) != state)
 				break;
 
-#ifdef CUDA_TESTING
-			printf("%d: %d =?= %d\n", i, state, NFA_CURR_STATE(nfa, i));
-			printf("%d: %c =?= %c\n", i, str[idx], NFA_MATCH_CHAR(nfa, i));
-#endif
 			if(NFA_MATCH_CHAR(nfa, i) == str[idx] ) {
 				state = NFA_NEXT_STATE(nfa, i);
-#ifdef CUDA_TESTING
-				printf("%c -> next %d\n", str[idx], state);
-#endif
 				reset = false;
 				break;
 			}
@@ -178,9 +153,6 @@ __global__ void match_lines(char *block, int filesize, int size, int *offsets,
 
 		// nothing matched, reset state
 		if (reset) {
-#ifdef CUDA_TESTING
-			printf("reset:%c\n", str[idx]);
-#endif
 			idx = idx - state;// reset idx
 			state = 0;
 			nfa_idx = 0;
@@ -188,9 +160,6 @@ __global__ void match_lines(char *block, int filesize, int size, int *offsets,
 
 		if (state == 0xff) {
 			found[thread_idx] = true;
-#ifdef CUDA_TESTING
-			printf("thread_idx: match %d\n", thread_idx);
-#endif
 			return;
 		}
 
@@ -202,9 +171,6 @@ __global__ void match_lines(char *block, int filesize, int size, int *offsets,
 	}
 
 	found[thread_idx] = false;
-#ifdef CUDA_TESTING
-	printf("thread_idx: no match %d\n", thread_idx);
-#endif
 	return;
 }
 
@@ -226,12 +192,9 @@ void find_line_simple(struct config *c, std::vector<int> &h_offsets)
 			len++;
 			c->read_buf[i] = '\0';
 			prev = i+1;
-			//printf("%d: %s\n", h_offsets[len-1],
-			//			c->read_buf + h_offsets[len-1]);
 		}
 	}
 	c->read_buf[c->file_size-1] = '\0';
-	//printf("\n");
 }
 
 //void print_matches(struct config *c, bool *h_found,
@@ -240,11 +203,7 @@ void print_matches(struct config *c, bool *h_found, int *h_offsets, int h_found_
 {
 	c->read_buf[c->file_size-1] = '\0';
 
-	printf("Search Results:\n");
 	for(int i=0; i<h_found_size; i++) {
-
-		//printf("%s: %s\n", h_found[i] ? "T :" : "F :",
-		//		&c->read_buf[h_offsets[i]]);
 
 		if (h_found[i] == false)
 			continue;
@@ -301,9 +260,6 @@ void find_line_offsets(char *d_read_buf, struct config *c,
 		printf("Error h_global_ctr %d != h_off_size %d\n",
 				h_global_ctr, off_size);
 		exit(1);
-	} else {
-		printf("Success h_global_ctr %d == h_off_size %d\n",
-				h_global_ctr, off_size);
 	}
 
 	// sort h_offsets
@@ -334,8 +290,6 @@ void start_kernels(struct config *c)
 	cuErr(cudaMalloc(&d_found, h_off_size*sizeof(bool)),
 			"Alloc d_found");
 
-	printf("Start kernel\n");
-
 	uint8_t *d_nfa_blk;
 	cuErr(cudaMalloc(&d_nfa_blk, c->nfa_len*sizeof(uint32_t)),
 			"Alloc d_nfa");
@@ -354,7 +308,6 @@ void start_kernels(struct config *c)
 					 c->nfa_len);
 	// wait for all kernels to complete
 
-	printf("Print found\n");
 	//print the line if found is true
 
 	bool *h_found;

@@ -37,15 +37,7 @@ int build_nfa(char *regex, int regex_len, uint8_t **nfa_blk_p) {
 
 	uint8_t *nfa_blk = NULL;
 
-#ifdef NFA_TESTING
 	nfa_blk = (uint8_t*)calloc(400, sizeof(uint8_t));
-#else
-	cudaError_t err = cudaMallocHost(&nfa_blk, 400*sizeof(uint8_t));
-	if (err != cudaSuccess) {
-		fprintf(stderr, "Failed to allocate nfa: %s", cudaGetErrorString(err));
-		return -1;
-	}
-#endif
 	*nfa_blk_p = nfa_blk;
 
 	int idx = 0;
@@ -155,12 +147,12 @@ int build_nfa(char *regex, int regex_len, uint8_t **nfa_blk_p) {
 		                    (tn) & 0xff , (tn >> 8) & 0xff);
 	}
 
-	printf("NFA_BLK:\n");
-	for(uint i =0; i < temp_nfa.size(); i++) {
-		printf(": %d %c %d\n",  NFA_CURR_STATE(nfa_blk, i),
-					NFA_MATCH_CHAR(nfa_blk, i),
-					NFA_NEXT_STATE(nfa_blk, i));
-	}
+	//printf("NFA_BLK:\n");
+	//for(uint i =0; i < temp_nfa.size(); i++) {
+	//	printf(": %d %c %d\n",  NFA_CURR_STATE(nfa_blk, i),
+	//				NFA_MATCH_CHAR(nfa_blk, i),
+	//				NFA_NEXT_STATE(nfa_blk, i));
+	//}
 
 	return nfa_idx;
 }
@@ -182,15 +174,8 @@ bool match(uint8_t *nfa, int nfa_len, char* str, int slen)
 			if(NFA_CURR_STATE(nfa, i) != state)
 				break;
 
-#ifdef NFA_TESTING
-			printf("%d: %d =?= %d\n", i, state, NFA_CURR_STATE(nfa, i));
-			printf("%d: %c =?= %c\n", i, str[idx], NFA_MATCH_CHAR(nfa, i));
-#endif
 			if(NFA_MATCH_CHAR(nfa, i) == str[idx] ) {
 				state = NFA_NEXT_STATE(nfa, i);
-#ifdef NFA_TESTING
-				printf("%c -> next %d\n", str[idx], state);
-#endif
 				reset = false;
 				break;
 			}
@@ -198,18 +183,12 @@ bool match(uint8_t *nfa, int nfa_len, char* str, int slen)
 
 		// nothing matched, reset state
 		if (reset) {
-#ifdef NFA_TESTING
-			printf("reset:%c\n", str[idx]);
-#endif
 			idx = idx - state;
 			state = 0;
 			nfa_idx = 0;
 		}
 
 		if (state == 0xff) {
-#ifdef NFA_TESTING
-			printf("thread_idx: match %d\n", thread_idx);
-#endif
 			return true;
 		}
 
@@ -220,9 +199,6 @@ bool match(uint8_t *nfa, int nfa_len, char* str, int slen)
 		idx++;
 	}
 
-#ifdef NFA_TESTING
-	printf("thread_idx: no match %d\n", thread_idx);
-#endif
 	return false;
 //	while(idx < slen && str[idx]!='\0') {
 //		reset = true;
