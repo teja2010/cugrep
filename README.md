@@ -7,7 +7,7 @@ An exercise in understanding CUDA and Regex.
 ----
 wc : 19058252
 
-`fo*s` : 40506 (1.8%)
+`fo*s` : 40506 (0.21%)
 | prog        | time   |
 |:------------|:-------|
 | ripgrep     |1.95    |
@@ -15,6 +15,27 @@ wc : 19058252
 | cugrep 0.1  |2.42    |
 | cugrep 0.2  |0.84    |  find offsets in kernel
 | cugrep 0.3  |0.87    |  move nfa to shared mem
+
+PATTERN `de*l` : 388123 (2.0%)
+| prog        | time   |
+|:------------|:-------|
+| ripgrep     |2.69    |
+| grep        |3.61    |
+| cugrep      |1.54    |
+
+PATTERN `ra*l` : 795930 (4.17%)
+| prog        | time   |
+|:------------|:-------|
+| ripgrep     |3.16    |
+| grep        |3.67    |
+| cugrep      |1.50    |
+
+PATTERN `ty*t` : 1248172 (6.5%)
+| prog        | time   |
+|:------------|:-------|
+| ripgrep     |3.10    |
+| grep        |3.65    |
+| cugrep      |1.99    |
 
 PATTERN `ss*i` : 1945310 (11%)
 | prog        | time   |
@@ -26,6 +47,12 @@ PATTERN `ss*i` : 1945310 (11%)
 | cugrep 0.3  |2.40    |
 
 `i*on` : 6296087 (33%)
+| prog        | time   |
+|:------------|:-------|
+| ripgrep     |4.61    |
+| grep        |4.62    |
+| cugrep      |5.34    |
+
 
 PATTERN `s*a`  : 14534739 (76%)
 | prog        | time   |
