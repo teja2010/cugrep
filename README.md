@@ -3,9 +3,12 @@
 grep in cuda.
 An exercise in understanding CUDA and Regex.
 
+to use smol.txt (a 238M file) run:
+`7z x file.7z`
+
 
 ----
-wc : 19058252
+wc -l big.txt: 19058252
 
 `fo*s` : 40506 (0.21%)
 | prog        | time   |

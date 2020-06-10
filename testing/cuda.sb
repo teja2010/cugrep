@@ -1,0 +1,59 @@
+#!/bin/bash
+#SBATCH --job-name="CUDA"
+#SBATCH --output="CUDA.%j.%N.out"
+#SBATCH --partition=gpu-shared
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=6
+#SBATCH --gres=gpu:1
+#SBATCH -t 00:05:00
+
+#Load the cuda module
+module load cuda
+
+#Run the job
+#./cugrep as test.txt
+#nvprof --log-file nvprof.log ./cugrep s big.txt | wc
+
+#./cugrep ss*i results.txt
+
+#./cugrep ss*i smol.txt | wc
+#echo ""
+#./cugrep ss*i big.txt | head -n 100
+
+
+echo "Pattern ss*i"
+
+echo ""
+echo ""
+echo ""
+./cugrep ss*i big.txt &> /dev/null
+grep ss*i big.txt  &> /dev/null
+./ripgrep ss*i big.txt &> /dev/null
+
+
+echo ""
+echo ""
+echo "cugrep: ------------------------------------------------ "
+time ./cugrep ss*i big.txt | wc
+time ./cugrep ss*i big.txt | wc
+time ./cugrep ss*i big.txt | wc
+time ./cugrep ss*i big.txt | wc
+echo ""
+
+echo ""
+echo ""
+echo "grep: --------------------------------------------------"
+time grep ss*i big.txt | wc
+time grep ss*i big.txt | wc
+time grep ss*i big.txt | wc
+time grep ss*i big.txt | wc
+echo ""
+
+echo ""
+echo ""
+echo "ripgrep: -----------------------------------------------"
+time ./ripgrep ss*i big.txt | wc
+time ./ripgrep ss*i big.txt | wc
+time ./ripgrep ss*i big.txt | wc
+time ./ripgrep ss*i big.txt | wc
+echo ""
