@@ -211,6 +211,7 @@ void print_matches(struct config *c, bool *h_found, int *h_offsets, int h_found_
 {
 	c->read_buf[c->file_size-1] = '\0';
 
+	int count = 0;
 	for(int i=0; i<h_found_size; i++) {
 
 		if (h_found[i] == false)
@@ -220,8 +221,9 @@ void print_matches(struct config *c, bool *h_found, int *h_offsets, int h_found_
 			c->read_buf[h_offsets[i+1]-1] = '\0';
 
 		puts(&c->read_buf[h_offsets[i]]);
-
+		count++;
 	}
+	//printf("%d\n", count);
 }
 
 
@@ -291,8 +293,6 @@ void start_kernels(struct config *c)
 	int h_off_size = 0;
 	thrust::device_vector<int> d_offsets;
 	find_line_offsets(d_read_buf, c, d_offsets, &h_off_size);
-
-
 
 	bool *d_found;
 	cuErr(cudaMalloc(&d_found, h_off_size*sizeof(bool)),

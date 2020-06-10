@@ -26,8 +26,10 @@
  * supports:
  *	"e*"  : matches 0 or more of the preceding expression e
  *	"e+"  : matches 0 or more of the preceding expression e
- *	"."   : match any character TODO
  *	"e|f" : matches expression e or expression f
+ *
+ *   Future work: Add support for:
+ *	"."   : match any character TODO
  *	"(e)" : enclose a multi-character expression e
  *
  * returns nfa_blk_p 's length on success
@@ -200,34 +202,4 @@ bool match(uint8_t *nfa, int nfa_len, char* str, int slen)
 	}
 
 	return false;
-//	while(idx < slen && str[idx]!='\0') {
-//		reset = true;
-//		for(int i=nfa_idx; i< nfa_len; i++) {
-//			if(NFA_CURR_STATE(nfa, i) != state)
-//				break;
-//
-//			if(NFA_MATCH_CHAR(nfa, i) == str[idx] ) {
-//				state = NFA_NEXT_STATE(nfa, i);
-//				reset = false;
-//				break;
-//			}
-//		}
-//
-//		if (reset) {
-//			state = 0;
-//			nfa_idx = 0;
-//		}
-//
-//		if (state == 0xff) {
-//			return true;
-//		}
-//
-//		while(NFA_CURR_STATE(nfa, nfa_idx) < state) {
-//			nfa_idx++;
-//		}
-//
-//		idx++;
-//	}
-//
-//	return false;
 }
